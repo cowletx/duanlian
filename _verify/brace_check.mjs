@@ -10,7 +10,7 @@ const files = [];
     if (statSync(full).isDirectory()) {
       if (name === 'build' || name === '.gradle') continue;
       walk(full);
-    } else if (name.endsWith('.kt')) files.push(full);
+    } else if (name.endsWith('.kt') || name.endsWith('.kts')) files.push(full);
   }
 })(ROOT);
 
