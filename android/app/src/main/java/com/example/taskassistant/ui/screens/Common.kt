@@ -147,9 +147,21 @@ fun PrimaryButton(
     ) { Text(text) }
 }
 
-/** 次按钮 */
+/**
+ * 次按钮。
+ *
+ * 约定（所有按钮组件统一遵守）：**`onClick` 必须是最后一个参数**。
+ * 这样 `SecondaryButton(text = "x") { ... }` 这种尾随 lambda 写法才正确绑定到 onClick。
+ * 若 onClick 不在最后，尾随 lambda 会落到 modifier/enabled 上，编译器报：
+ *   No value passed for parameter 'onClick'
+ *   Argument type mismatch: Function0<Unit>, but Modifier was expected
+ */
 @Composable
-fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun SecondaryButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(
@@ -160,9 +172,13 @@ fun SecondaryButton(text: String, onClick: () -> Unit, modifier: Modifier = Modi
     ) { Text(text) }
 }
 
-/** 警告按钮（跳过本组/覆盖等） */
+/** 警告按钮（跳过本组/覆盖等）。onClick 放最后，原因见 SecondaryButton。 */
 @Composable
-fun WarningButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun WarningButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF9800), contentColor = Color.White),
@@ -170,9 +186,13 @@ fun WarningButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifi
     ) { Text(text) }
 }
 
-/** 危险按钮（结束训练/删除） */
+/** 危险按钮（结束训练/删除）。onClick 放最后，原因见 SecondaryButton。 */
 @Composable
-fun DangerButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+fun DangerButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
     Button(
         onClick = onClick,
         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935), contentColor = Color.White),

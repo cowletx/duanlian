@@ -560,9 +560,10 @@ fun SettingsScreen(
             if (!state.notificationsAllowed) {
                 Spacer(Modifier.height(6.dp))
                 // 未授权时给一个直达系统设置的入口，否则用户很难自己找到
-                WarningButton(text = "去开启通知权限") {
-                    openAppNotificationSettings(context)
-                }
+                WarningButton(
+                    text = "去开启通知权限",
+                    onClick = { openAppNotificationSettings(context) },
+                )
             }
             Spacer(Modifier.height(8.dp))
             ToggleRow(
@@ -602,9 +603,10 @@ fun SettingsScreen(
             CardTitle("诊断日志")
             CardSub("记录通知/服务/训练的关键事件，出问题时导出给我排查。")
             Spacer(Modifier.height(6.dp))
-            SecondaryButton(text = "导出日志") {
-                logLauncher.launch("task-assistant-log.txt")
-            }
+            SecondaryButton(
+                text = "导出日志",
+                onClick = { logLauncher.launch("task-assistant-log.txt") },
+            )
             Spacer(Modifier.height(6.dp))
             CardSub(AppLog.path())
         }

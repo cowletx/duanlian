@@ -65,12 +65,16 @@ for (const p of parsed) {
   while ((m = re.exec(text)) !== null) {
     const name = m[1];
     const params = m[2];
-    // 用逗号切分顶层参数（粗略：忽略嵌套括号内的逗号）
+    // 用逗号切分顶层参数（忽略嵌套括号内的逗号）
+    // 注意：`->` 里的 `>` 不是泛型闭合符，必须跳过，否则 depth 会变成负数，
+    // 导致后面的逗号不再切分（这个 bug 曾让 WarningButton/SecondaryButton 的漏报躲过检查）。
     const parts = [];
     let depth = 0, cur = '';
-    for (const ch of params) {
+    for (let i = 0; i < params.length; i++) {
+      const ch = params[i];
       if (ch === '(' || ch === '<') depth++;
-      else if (ch === ')' || ch === '>') depth--;
+      else if (ch === ')') depth--;
+      else if (ch === '>' && params[i - 1] !== '-') depth--;
       if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; } else cur += ch;
     }
     if (cur.trim()) parts.push(cur);
