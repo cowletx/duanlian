@@ -194,4 +194,5 @@
     <!-- 通知栏快捷操作按钮（最多 3 个） -->
     <string name="workout_action_add_rep">+1 次</string>
     <string name="workout_action_complete">完成本组</string>
+    <string name="workout_notification_hint">点按钮可直接操作；点正文回到训练页</string>
 </resources>

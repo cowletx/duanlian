@@ -10,6 +10,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import com.example.taskassistant.MainActivity
 import com.example.taskassistant.R
@@ -86,30 +87,57 @@ class WorkoutTimerService : Service() {
         val channel = NotificationChannel(
             CHANNEL_ID,
             getString(R.string.workout_channel_name),
-            // 用 DEFAULT 而不是 LOW：LOW 的常驻通知在多数 ROM 上会被折叠成一行，
-            // 操作按钮要么不显示、要么必须手动展开，用户容易以为"没有按钮"。
-            NotificationManager.IMPORTANCE_DEFAULT,
+            // IMPORTANCE_HIGH：HyperOS/MIUI 对低重要性常驻通知的折叠非常激进，
+            // 低重要性会连"展开箭头"都不给。HIGH 保证通知有完整的卡片与展开能力。
+            // 声音/震动在下面关掉，避免每次进度更新都响。
+            NotificationManager.IMPORTANCE_HIGH,
         ).apply {
             description = getString(R.string.workout_channel_desc)
             setShowBadge(false)
+            setSound(null, null)
+            enableVibration(false)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
         }
         manager.createNotificationChannel(channel)
     }
 
+    /**
+     * 构建通知。
+     *
+     * 采用【RemoteViews 自定义布局】作为主要显示方式（见 res/layout/notification_workout_*.xml）：
+     *   - setCustomContentView：折叠态。**3 个按钮放在这里**，因为 HyperOS 常驻通知
+     *     经常折叠到无法展开，按钮只放在 big view 里就永远看不到；
+     *   - setCustomBigContentView：展开态。有了它系统才提供下拉箭头。
+     *
+     * 同时仍然调用 addAction：万一某些 ROM 忽略自定义视图，系统会退回标准布局，
+     * 此时 3 个标准 action 依然存在（双保险）。
+     *
+     * 注意这里**不设 setStyle(BigTextStyle)**：自定义内容视图与 Style 同时存在时，
+     * 不同系统版本的处理优先级不一致，容易出现"布局被覆盖成纯文本"。只用 RemoteViews。
+     */
     private fun buildNotification(title: String, text: String): Notification {
         val contentIntent = PendingIntent.getActivity(
             this,
-            0,
-            Intent(this, MainActivity::class.java),
+            REQUEST_CONTENT,
+            // 关键（Bug 2）：SINGLE_TOP + CLEAR_TOP + Manifest 的 singleTask，
+            // 三者一起保证点击通知只是把已有 Activity 唤到前台（走 onNewIntent），
+            // 而不是新建一个实例（那样会新建 ViewModel，训练进度就"归零"了）。
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra(EXTRA_OPEN_WORKOUT, true)
+            },
+            // 固定 requestCode=0 且 UPDATE_CURRENT：复用同一个 PendingIntent，
+            // 避免每次更新通知都生成新的（会导致点击行为不一致）。
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_menu_recent_history)
             .setContentTitle(title)
             .setContentText(text)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            // 说明：这里不设 Style。自定义内容视图（下面 setCustomContentView /
+            // setCustomBigContentView）就是最终显示的内容，避免 Style 与 RemoteViews
+            // 的优先级差异导致布局被替换成系统模板。
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
@@ -117,10 +145,9 @@ class WorkoutTimerService : Service() {
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setColor(0xFF4CAF50.toInt())
             .setContentIntent(contentIntent)
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            // 三个快捷操作。图标用系统内置 drawable（API 24+ 通知栏不显示操作图标，
-            // 但传 0 在个别 ROM 上会导致整条 action 被丢弃，所以必须给真实资源）。
+            // 标准 action：ROM 忽略自定义视图时仍可用
             .addAction(
                 android.R.drawable.ic_input_add,
                 getString(R.string.workout_action_add_rep),
@@ -136,7 +163,33 @@ class WorkoutTimerService : Service() {
                 getString(R.string.workout_notification_stop),
                 actionIntent(WorkoutActionBus.FINISH, REQUEST_FINISH),
             )
-            .build()
+            // 自定义布局（主显示方式）
+            .setCustomContentView(buildRemoteViews(text, big = false, contentIntent = contentIntent))
+            .setCustomBigContentView(buildRemoteViews(text, big = true, contentIntent = contentIntent))
+
+        return builder.build()
+    }
+
+    /**
+     * 构建 RemoteViews。
+     *
+     * 注意 RemoteViews 的能力限制：只支持少数布局/控件，且所有要更新的 id
+     * 必须在布局里真实存在，否则运行时直接抛异常（不是编译错误）。
+     */
+    private fun buildRemoteViews(text: String, big: Boolean, contentIntent: PendingIntent): RemoteViews {
+        val layout = if (big) R.layout.notification_workout_big else R.layout.notification_workout_compact
+        return RemoteViews(packageName, layout).apply {
+            setTextViewText(R.id.notification_text, text)
+            // 点正文 → 回到 App（单实例）
+            setOnClickPendingIntent(R.id.notification_root, contentIntent)
+            // 三个操作按钮
+            setOnClickPendingIntent(R.id.action_add_rep, actionIntent(WorkoutActionBus.ADD_REP, REQUEST_ADD_REP))
+            setOnClickPendingIntent(
+                R.id.action_complete_set,
+                actionIntent(WorkoutActionBus.COMPLETE_SET, REQUEST_COMPLETE_SET),
+            )
+            setOnClickPendingIntent(R.id.action_finish, actionIntent(WorkoutActionBus.FINISH, REQUEST_FINISH))
+        }
     }
 
     /** 每个按钮独立的 requestCode，避免 PendingIntent 被复用成同一个。 */
@@ -150,16 +203,21 @@ class WorkoutTimerService : Service() {
 
     companion object {
         /**
-         * 频道 id 带 _v2：NotificationChannel 的重要性创建后不可修改，
-         * 沿用旧的 "workout_timer"（IMPORTANCE_LOW）会让新设置不生效，
-         * 所以换新 id 让系统按 DEFAULT 重建频道。
+         * 频道 id 带 _v3：NotificationChannel 的重要性创建后不可修改。
+         * v1 是 LOW、v2 是 DEFAULT，HyperOS 都折叠得看不到按钮；
+         * 换新 id 才能让系统按 IMPORTANCE_HIGH 重建频道。
          */
-        const val CHANNEL_ID = "workout_timer_v2"
+        const val CHANNEL_ID = "workout_timer_v3"
         const val NOTIFICATION_ID = 1001
         const val EXTRA_TITLE = "title"
         const val EXTRA_TEXT = "text"
+
+        /** 点通知进入 App 时带上，用于直接把界面切到训练页。 */
+        const val EXTRA_OPEN_WORKOUT = "open_workout"
+
         const val ACTION_STOP = "com.example.taskassistant.action.STOP_WORKOUT_TIMER"
 
+        private const val REQUEST_CONTENT = 0
         private const val REQUEST_ADD_REP = 11
         private const val REQUEST_COMPLETE_SET = 12
         private const val REQUEST_FINISH = 13

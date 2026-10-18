@@ -91,6 +91,10 @@ interface ScheduleDao {
     @Query("SELECT * FROM schedule_entries WHERE id = :id")
     suspend fun getEntry(id: String): ScheduleEntryEntity?
 
+    /** 按状态取条目。用于找出「进行中」的训练，Activity 重建后据此恢复进度。 */
+    @Query("SELECT * FROM schedule_entries WHERE status = :status ORDER BY date ASC")
+    suspend fun getEntriesWithStatus(status: String): List<ScheduleEntryEntity>
+
     @Query("SELECT * FROM schedule_entries WHERE taskId = :taskId AND date = :date LIMIT 1")
     suspend fun findEntry(taskId: String, date: String): ScheduleEntryEntity?
 

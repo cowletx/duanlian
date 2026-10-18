@@ -258,6 +258,25 @@ class TaskRepository(
     }
 
     /**
+     * 找出「进行中」的训练条目，用于 Activity 重建（例如点通知回到 App）后恢复进度。
+     *
+     * 为什么需要：训练进度虽然每一步都落库（指针 / 组记录 / setStarted），
+     * 但界面上的 WorkoutSession 只存在于 ViewModel 内存里。一旦 Activity 被重建
+     * （点通知、旋转屏幕、进程被回收后重进），新 ViewModel 的 workout 是 null，
+     * 界面就会看起来"进度归零"。这里从数据库把最后一条进行中的训练捞回来重建会话。
+     *
+     * 取日期最大的一条：正常情况下同时只会有一条进行中的训练。
+     */
+    suspend fun findInProgressEntry(): DayEntry? = withContext(Dispatchers.IO) {
+        val entity = scheduleDao.getEntriesWithStatus(EntryStatus.IN_PROGRESS.storageValue)
+            .maxByOrNull { it.date }
+            ?: return@withContext null
+        val task = getTasks().firstOrNull { it.id == entity.taskId } ?: return@withContext null
+        val sets = scheduleDao.getSetRecordsFor(listOf(entity.id))
+        DayEntry(entry = entity.toDomain(sets), task = task)
+    }
+
+    /**
      * 结束训练：写入最终状态与历史记录（Bug 4）。
      * 完成 → completed；有跳过/未做满 → incomplete（界面红色「提前结束」）。
      */

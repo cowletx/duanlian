@@ -123,6 +123,29 @@ class MainActivity : ComponentActivity() {
                 AppRoot(viewModel) { exportLauncher.launch(exportFileName()) }
             }
         }
+        // 冷启动时也可能是从通知点进来的
+        handleLaunchIntent(intent)
+    }
+
+    /**
+     * Bug 2 的关键修复：点击通知回到 App 时，**不要**重建 Activity / ViewModel。
+     *
+     * 配合 Manifest 的 android:launchMode="singleTask"：
+     * 已有实例会被唤到前台并回调 onNewIntent（而不是走 onCreate），
+     * ViewModel 与正在进行中的训练状态原样保留。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // 必须 setIntent，否则后续 getIntent() 拿到的还是旧的
+        setIntent(intent)
+        handleLaunchIntent(intent)
+    }
+
+    /** 处理从通知带过来的意图：直接把界面切到训练页。 */
+    private fun handleLaunchIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(WorkoutTimerService.EXTRA_OPEN_WORKOUT, false) == true) {
+            viewModel.onNotificationOpened()
+        }
     }
 
     private fun exportFileName(): String {

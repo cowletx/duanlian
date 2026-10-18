@@ -161,6 +161,48 @@ class MainViewModel(
             refreshAll()
             // 启动即滚动生成一次，保证首页/周视图有数据
             regenerate()
+            // Activity 被重建后，把进行中的训练从数据库恢复回来（Bug 2 的兜底）
+            restoreActiveWorkout()
+        }
+    }
+
+    /** 从通知点进来时置位：等状态恢复完成后自动切到训练页。 */
+    private var openWorkoutOnReady = false
+
+    /**
+     * 点通知回到 App 时调用（由 MainActivity.onNewIntent / onCreate 触发）。
+     *
+     * 正常路径下 Activity 不会被重建，workout 还在，直接切到训练页即可；
+     * 如果确实被重建了（例如进程被回收），先记下意图，等 [restoreActiveWorkout] 恢复完再切。
+     */
+    fun onNotificationOpened() {
+        if (_state.value.workout != null) {
+            _state.value = _state.value.copy(screen = Screen.Workout)
+            syncWorkoutNotification()
+        } else {
+            openWorkoutOnReady = true
+        }
+    }
+
+    /**
+     * 恢复进行中的训练。
+     *
+     * 只恢复「今天」的进行中条目：避免把几天前忘在那里的半场训练在每次启动时
+     * 重新激活并弹通知。
+     */
+    private suspend fun restoreActiveWorkout() {
+        if (_state.value.workout != null) return
+        val active = repository.findInProgressEntry() ?: return
+        if (active.entry.date.value != LocalDate.now().toString()) return
+        val session = WorkoutEngine.start(active.task, active.entry)
+        _state.value = _state.value.copy(
+            workout = session,
+            actualReps = session.currentSlot?.targetReps ?: 0,
+        )
+        syncWorkoutNotification()
+        if (openWorkoutOnReady) {
+            openWorkoutOnReady = false
+            _state.value = _state.value.copy(screen = Screen.Workout)
         }
     }
 
