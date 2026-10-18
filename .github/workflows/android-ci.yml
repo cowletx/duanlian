@@ -76,7 +76,7 @@ jobs:
 
       # 2) 编译 Debug APK
       - name: 编译 Debug APK :app:assembleDebug
-        run: ./gradlew :app:assembleDebug -x test--stacktrace
+        run: ./gradlew :app:assembleDebug -x test --stacktrace
 
       # 3) 上传测试报告（无论成功失败都上传，便于排查）
       - name: 上传单元测试报告
