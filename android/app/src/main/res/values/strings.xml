@@ -191,4 +191,7 @@
     <string name="workout_notification_rest">组间休息：%1$d 秒</string>
     <string name="workout_notification_progress">训练中 · 进度 %1$d/%2$d 组</string>
     <string name="workout_notification_stop">结束训练</string>
+    <!-- 通知栏快捷操作按钮（最多 3 个） -->
+    <string name="workout_action_add_rep">+1 次</string>
+    <string name="workout_action_complete">完成本组</string>
 </resources>

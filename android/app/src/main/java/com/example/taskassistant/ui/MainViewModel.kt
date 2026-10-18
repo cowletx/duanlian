@@ -17,6 +17,7 @@ import com.example.taskassistant.data.DayEntry
 import com.example.taskassistant.data.HistoryDetail
 import com.example.taskassistant.data.SettingsRepository
 import com.example.taskassistant.data.TaskRepository
+import com.example.taskassistant.workout.WorkoutActionBus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -148,6 +149,10 @@ class MainViewModel(
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     init {
+        // 通知栏按钮 → 这里。单独一个协程，避免和下面的初始化串行。
+        viewModelScope.launch {
+            WorkoutActionBus.actions.collect { action -> handleNotificationAction(action) }
+        }
         viewModelScope.launch {
             _state.value = _state.value.copy(notificationsAllowed = workoutService.canPostNotifications())
             settingsRepository?.let { repo ->
@@ -156,6 +161,26 @@ class MainViewModel(
             refreshAll()
             // 启动即滚动生成一次，保证首页/周视图有数据
             regenerate()
+        }
+    }
+
+    /**
+     * 处理通知栏的 3 个快捷操作。
+     *
+     * 与界面上的按钮走完全相同的代码路径，所以状态、落库、历史记录都一致；
+     * 处理完由 [syncWorkoutNotification] 把最新进度写回通知。
+     */
+    private fun handleNotificationAction(action: String) {
+        // 训练已经结束（或还没开始）时，先清掉可能残留的通知，避免"点了没反应"
+        if (_state.value.workout == null) {
+            workoutService.stop()
+            _state.value = _state.value.copy(workoutServiceRunning = false)
+            return
+        }
+        when (action) {
+            WorkoutActionBus.ADD_REP -> adjustActualReps(1)
+            WorkoutActionBus.COMPLETE_SET -> handleSetButton()
+            WorkoutActionBus.FINISH -> finishWorkout()
         }
     }
 
@@ -203,8 +228,15 @@ class MainViewModel(
         val text = if (session.restSecondsLeft > 0) {
             "组间休息：${session.restSecondsLeft} 秒"
         } else {
-            val stepName = session.currentSlot?.let { slot -> task?.steps?.getOrNull(slot.stepIndex)?.name }.orEmpty()
-            "进度 ${session.pointer}/${session.sequence.size} 组" + if (stepName.isNotEmpty()) " · $stepName" else ""
+            val slot = session.currentSlot
+            val stepName = slot?.let { s -> task?.steps?.getOrNull(s.stepIndex)?.name }.orEmpty()
+            val target = slot?.targetReps ?: 0
+            buildString {
+                append("进度 ${session.pointer}/${session.sequence.size} 组")
+                if (stepName.isNotEmpty()) append(" · ").append(stepName)
+                append(" · 本组 ${_state.value.actualReps}/$target 次")
+                if (session.setStarted) append("（进行中）")
+            }
         }
         val started = workoutService.start("训练进行中", text)
         _state.value = _state.value.copy(workoutServiceRunning = started)
@@ -281,7 +313,9 @@ class MainViewModel(
     // ------------------------------------------------------------ 导航
 
     fun navigate(screen: Screen) {
-        _state.value = _state.value.copy(screen = screen)
+        // 先准备目标页面的数据，再切页面：
+        // data first, then navigate —— 这样即便某一帧先渲染了页面，表单也已经有值，
+        // 不会出现"页面切过去了但内容是空的/又被旧状态覆盖"的情况。
         when (screen) {
             is Screen.PlanDetail -> loadPlanDetail(screen.taskId)
             is Screen.PlanEdit -> openPlanEdit(screen.taskId)
@@ -290,6 +324,20 @@ class MainViewModel(
             is Screen.HistoryDetail -> loadHistoryDetail(screen.recordId)
             else -> Unit
         }
+        _state.value = _state.value.copy(screen = screen)
+    }
+
+    /**
+     * 首页「＋ 添加任务」的专用入口。
+     *
+     * 为什么单独给一个方法：日期要以"点击这一刻"的 viewDate 为准，
+     * 而不是依赖调用方把 state 里的旧值传进来（Compose 里 lambda 捕获的
+     * state 可能落后一帧）。数据在这个方法内部取，顺序也在这里固定。
+     */
+    fun openAddTaskScreen() {
+        val date = _state.value.viewDate
+        openAddTask(date)
+        _state.value = _state.value.copy(screen = Screen.AddTask(date))
     }
 
     fun goBack() {
@@ -685,10 +733,13 @@ class MainViewModel(
 
     fun adjustActualReps(delta: Int) {
         _state.value = _state.value.copy(actualReps = (_state.value.actualReps + delta).coerceAtLeast(0))
+        // 通知里也显示「本组 x/y 次」，否则点通知的「+1 次」看不到任何反馈
+        syncWorkoutNotification()
     }
 
     fun setActualReps(value: Int) {
         _state.value = _state.value.copy(actualReps = value.coerceAtLeast(0))
+        syncWorkoutNotification()
     }
 
     /** 两阶段按钮：先「开始本组」，再「完成本组」。每步都即时落库。 */
@@ -754,6 +805,8 @@ class MainViewModel(
     private suspend fun syncSession(session: WorkoutSession, previousRecordCount: Int) {
         _state.value = _state.value.copy(workout = session)
         repository.persistWorkout(session, previousRecordCount)
+        // 每完成/跳过一组都刷新通知，让通知栏进度与界面同步（含从通知触发的操作）
+        syncWorkoutNotification()
     }
 
     private fun currentWorkoutTask(): TaskDef? {

@@ -42,6 +42,12 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="workout_rest_timer" />
         </service>
+
+        <!-- 接收通知栏操作按钮（+1 次 / 完成本组 / 结束训练）的广播。
+             exported=false：只有本应用能发，外部无法伪造训练操作。 -->
+        <receiver
+            android:name=".workout.WorkoutActionReceiver"
+            android:exported="false" />
     </application>
 
 </manifest>

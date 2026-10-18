@@ -63,7 +63,9 @@ fun HomeScreen(viewModel: MainViewModel, state: UiState) {
         Spacer(Modifier.height(12.dp))
         PrimaryButton(
             text = "＋ 添加任务",
-            onClick = { viewModel.navigate(Screen.AddTask(state.viewDate)) },
+            // 用 ViewModel 的专用入口：日期在点击瞬间从 VM 取，
+            // 且内部固定了「先准备表单数据 → 再切页面」的顺序。
+            onClick = { viewModel.openAddTaskScreen() },
         )
 
         if (state.backlogGroups.isNotEmpty()) {

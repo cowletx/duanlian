@@ -16,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -159,7 +160,15 @@ fun AppRoot(viewModel: MainViewModel, onExportRequest: () -> Unit) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(AppBackground)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+            // 关键：targetSdk 35 起，Android 15+ 会强制 edge-to-edge，应用内容会绘制到
+            // 状态栏 / 导航栏 / 手势区下方。不做 insets 处理时，底部按钮与底部导航栏会被
+            // 系统手势区覆盖 —— 表现就是「按钮看得见却点不动」。
+            .safeDrawingPadding(),
+    ) {
         when (val screen = state.screen) {
             Screen.Home -> HomeScreen(viewModel, state)
             Screen.Plans -> PlansScreen(viewModel, state)
