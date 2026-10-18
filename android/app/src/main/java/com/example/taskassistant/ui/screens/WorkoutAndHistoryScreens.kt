@@ -1,5 +1,10 @@
 package com.example.taskassistant.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +22,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -28,6 +34,7 @@ import com.example.taskassistant.ui.MainViewModel
 import com.example.taskassistant.ui.Screen
 import com.example.taskassistant.ui.StatusUi
 import com.example.taskassistant.ui.UiState
+import com.example.taskassistant.util.AppLog
 import com.example.taskassistant.ui.components.AppCard
 import com.example.taskassistant.ui.components.CardSub
 import com.example.taskassistant.ui.components.CardTitle
@@ -521,6 +528,20 @@ fun SettingsScreen(
     state: UiState,
     onExportRequest: () -> Unit,
 ) {
+    val context = LocalContext.current
+    // 用 SAF 导出日志：不需要任何存储权限，用户自己选保存位置
+    val logLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        val ok = runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(AppLog.read().toByteArray(Charsets.UTF_8))
+            } ?: error("无法打开目标文件")
+        }.isSuccess
+        viewModel.showToast(if (ok) "日志已导出" else "日志导出失败")
+    }
+
     ScreenScaffold(
         currentTab = BottomTab.SETTINGS,
         onTabSelected = { viewModel.navigate(it.toScreen()) },
@@ -533,9 +554,16 @@ fun SettingsScreen(
                 if (state.notificationsAllowed) {
                     "通知权限：已授权"
                 } else {
-                    "通知权限：未授权（训练时只在应用内显示倒计时）"
+                    "通知权限：未授权 —— 训练时不会有任何通知，只有应用内倒计时"
                 }
             )
+            if (!state.notificationsAllowed) {
+                Spacer(Modifier.height(6.dp))
+                // 未授权时给一个直达系统设置的入口，否则用户很难自己找到
+                WarningButton(text = "去开启通知权限") {
+                    openAppNotificationSettings(context)
+                }
+            }
             Spacer(Modifier.height(8.dp))
             ToggleRow(
                 label = "常驻通知",
@@ -547,6 +575,12 @@ fun SettingsScreen(
                 checked = state.settings.vibrateOnRestEnd,
                 onCheckedChange = { viewModel.setVibrateOnRestEnd(it) },
             )
+            ToggleRow(
+                label = "通知兼容模式（自定义布局不显示时打开）",
+                checked = state.settings.notificationCompat,
+                onCheckedChange = { viewModel.setNotificationCompat(it) },
+            )
+            CardSub("兼容模式改用系统标准通知，只有文字和 3 个按钮；如果通知整条消失，请打开它。")
             if (state.workoutServiceRunning) {
                 CardSub("训练通知正在运行")
             }
@@ -562,6 +596,17 @@ fun SettingsScreen(
             SecondaryButton(text = "重置生成游标", onClick = { viewModel.resetCursors() })
             Spacer(Modifier.height(6.dp))
             CardSub("导出会写入你选择的位置；重置游标不会删除任何数据，只让日程重新计算一遍。")
+        }
+
+        AppCard {
+            CardTitle("诊断日志")
+            CardSub("记录通知/服务/训练的关键事件，出问题时导出给我排查。")
+            Spacer(Modifier.height(6.dp))
+            SecondaryButton(text = "导出日志") {
+                logLauncher.launch("task-assistant-log.txt")
+            }
+            Spacer(Modifier.height(6.dp))
+            CardSub(AppLog.path())
         }
 
         AppCard {
@@ -586,6 +631,16 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
         Text(text = label, color = Color(0xFFE0E0E0), fontSize = 15.sp)
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
+}
+
+/** 打开本应用的通知设置页（未授权时给用户一个直达入口）。 */
+private fun openAppNotificationSettings(context: Context) {
+    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+    runCatching { context.startActivity(intent) }
+        .onFailure { AppLog.e("打开通知设置失败", it) }
 }
 
 /** 状态色图例（设置页用）。 */

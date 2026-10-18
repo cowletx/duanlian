@@ -17,6 +17,7 @@ import com.example.taskassistant.data.DayEntry
 import com.example.taskassistant.data.HistoryDetail
 import com.example.taskassistant.data.SettingsRepository
 import com.example.taskassistant.data.TaskRepository
+import com.example.taskassistant.util.AppLog
 import com.example.taskassistant.workout.WorkoutActionBus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -112,7 +113,7 @@ interface WorkoutServiceController {
     fun canPostNotifications(): Boolean
 
     /** 启动/更新训练通知；返回 false 表示系统不允许（退回界面内计时）。 */
-    fun start(title: String, text: String): Boolean
+    fun start(title: String, text: String, compat: Boolean): Boolean
 
     /** 停止训练通知。 */
     fun stop()
@@ -124,7 +125,7 @@ interface WorkoutServiceController {
 /** 默认实现：不做任何事（用于预览/测试）。 */
 object NoopWorkoutServiceController : WorkoutServiceController {
     override fun canPostNotifications(): Boolean = true
-    override fun start(title: String, text: String): Boolean = false
+    override fun start(title: String, text: String, compat: Boolean): Boolean = false
     override fun stop() = Unit
     override fun vibrateShort() = Unit
 }
@@ -248,6 +249,22 @@ class MainViewModel(
         showToast(if (enabled) "已开启震动提醒" else "已关闭震动提醒")
     }
 
+    /**
+     * 切换「通知兼容模式」。
+     *
+     * 部分 ROM（HyperOS/MIUI）会丢弃 RemoteViews 自定义布局的通知，
+     * 表现为整条通知消失。打开兼容模式后改用标准通知（只有文字 + 3 个 action），
+     * 适合自定义布局不生效的设备。
+     */
+    fun setNotificationCompat(enabled: Boolean) {
+        _state.value = _state.value.copy(settings = _state.value.settings.copy(notificationCompat = enabled))
+        viewModelScope.launch { settingsRepository?.setNotificationCompat(enabled) }
+        AppLog.d("setNotificationCompat: $enabled")
+        // 正在训练就立刻按新模式重建通知
+        syncWorkoutNotification()
+        showToast(if (enabled) "已开启兼容模式（标准通知）" else "已关闭兼容模式（自定义布局）")
+    }
+
     /** 通知权限结果回传（Activity 请求后调用）。 */
     fun onNotificationPermissionResult(granted: Boolean) {
         _state.value = _state.value.copy(notificationsAllowed = granted)
@@ -280,8 +297,15 @@ class MainViewModel(
                 if (session.setStarted) append("（进行中）")
             }
         }
-        val started = workoutService.start("训练进行中", text)
+        val started = workoutService.start(
+            "训练进行中",
+            text,
+            _state.value.settings.notificationCompat,
+        )
         _state.value = _state.value.copy(workoutServiceRunning = started)
+        if (!started) {
+            AppLog.d("syncWorkoutNotification: 前台服务未启动（permission=${_state.value.notificationsAllowed}, persistent=${_state.value.settings.persistentNotification}）")
+        }
     }
 
     // ------------------------------------------------------------ 基础刷新
@@ -752,8 +776,10 @@ class MainViewModel(
 
     fun startWorkout(entry: ScheduleEntry, task: TaskDef) {
         viewModelScope.launch {
+            AppLog.d("startWorkout: entry=${entry.id} status=${entry.status} task=${task.name}")
             repository.markWorkoutStarted(entry.id)
             val session = WorkoutEngine.start(task, entry)
+            AppLog.d("startWorkout: session pointer=${session.pointer}/${session.sequence.size}")
             _state.value = _state.value.copy(
                 workout = session,
                 actualReps = session.currentSlot?.targetReps ?: 0,
@@ -762,6 +788,33 @@ class MainViewModel(
             refreshViewDate()
             // 训练开始 → 启动前台服务通知（未授权时自动退回界面内计时）
             syncWorkoutNotification()
+            // 通知权限没给时明确告诉用户，否则就是"通知完全消失但不知道为什么"
+            if (!_state.value.notificationsAllowed) {
+                showToast("通知权限未开启，本次训练不显示通知（可在设置里开启）")
+            } else if (!_state.value.workoutServiceRunning && _state.value.settings.persistentNotification) {
+                showToast("常驻通知启动失败，训练计时在应用内继续（设置→导出日志 可查看原因）")
+            }
+        }
+    }
+
+    /**
+     * 首页「再练一次」：把已结束（完成/未完成/跳过）的安排重置后重新开始。
+     *
+     * 之前的问题：这些状态的卡片只有一行文字，没有任何再次开始的入口，
+     * 导致当天结束训练后"无法重新开始"。
+     */
+    fun restartWorkout(entry: ScheduleEntry, task: TaskDef) {
+        viewModelScope.launch {
+            val fresh = repository.resetEntryForRestart(entry.id)
+            if (fresh == null) {
+                AppLog.e("restartWorkout: 重置条目失败 entry=${entry.id}")
+                showToast("重新开始失败：找不到该安排")
+                return@launch
+            }
+            AppLog.d("restartWorkout: 已重置 entry=${entry.id}，重新开始训练")
+            startWorkout(fresh, task)
+            refreshViewDate()
+            refreshToday()
         }
     }
 
@@ -864,8 +917,10 @@ class MainViewModel(
         val session = _state.value.workout ?: return
         val task = currentWorkoutTask() ?: return
         viewModelScope.launch {
+            AppLog.d("finishWorkout: entry=${session.entryId} pointer=${session.pointer}/${session.sequence.size} records=${session.records.size}")
             repository.persistWorkout(session, session.records.size)
             val history = repository.finishWorkout(task, session)
+            AppLog.d("finishWorkout: 历史已保存 completed=${history.completed}")
             // 训练结束 → 立即停止通知服务
             workoutService.stop()
             _state.value = _state.value.copy(

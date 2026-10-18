@@ -64,8 +64,8 @@ private class AndroidWorkoutServiceController(private val context: Context) : Wo
 
     override fun canPostNotifications(): Boolean = WorkoutTimerService.canPostNotifications(context)
 
-    override fun start(title: String, text: String): Boolean =
-        WorkoutTimerService.start(context, title, text, canPostNotifications())
+    override fun start(title: String, text: String, compat: Boolean): Boolean =
+        WorkoutTimerService.start(context, title, text, canPostNotifications(), compat)
 
     override fun stop() = WorkoutTimerService.stop(context)
 

@@ -4,6 +4,7 @@ import android.app.Application
 import com.example.taskassistant.data.SettingsRepository
 import com.example.taskassistant.data.TaskRepository
 import com.example.taskassistant.data.db.AppDatabase
+import com.example.taskassistant.util.AppLog
 
 /**
  * 应用入口：只负责构建数据库与仓库，供 ViewModel 使用。
@@ -16,4 +17,10 @@ class TaskAssistantApp : Application() {
     val repository: TaskRepository by lazy { TaskRepository(database) }
 
     val settingsRepository: SettingsRepository by lazy { SettingsRepository(database.settingsDao()) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // 最早初始化文件日志：后面服务/通知出问题都靠它取证
+        AppLog.init(this)
+    }
 }

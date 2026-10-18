@@ -260,8 +260,8 @@ class TaskRepository(
     /**
      * 找出「进行中」的训练条目，用于 Activity 重建（例如点通知回到 App）后恢复进度。
      *
-     * 为什么需要：训练进度虽然每一步都落库（指针 / 组记录 / setStarted），
-     * 但界面上的 WorkoutSession 只存在于 ViewModel 内存里。一旦 Activity 被重建
+     * 训练进度虽然每一步都落库（指针 / 组记录 / setStarted），但界面上的
+     * WorkoutSession 只存在于 ViewModel 内存里。一旦 Activity 被重建
      * （点通知、旋转屏幕、进程被回收后重进），新 ViewModel 的 workout 是 null，
      * 界面就会看起来"进度归零"。这里从数据库把最后一条进行中的训练捞回来重建会话。
      *
@@ -274,6 +274,25 @@ class TaskRepository(
         val task = getTasks().firstOrNull { it.id == entity.taskId } ?: return@withContext null
         val sets = scheduleDao.getSetRecordsFor(listOf(entity.id))
         DayEntry(entry = entity.toDomain(sets), task = task)
+    }
+
+    /**
+     * 把一条已经结束（completed / incomplete / skipped）的安排重置成可重新训练的状态。
+     *
+     * 用于首页的「再练一次」：
+     *   - 清空该条目的组记录（schedule 里的进度）；
+     *   - 指针归零、setStarted 复位；
+     *   - 状态改回进行中（避免同一天无法再次开始）。
+     *
+     * 注意：**不会删除历史记录**。之前那次训练的历史仍保留；
+     * 再次结束时会用同一个 entryId 覆盖历史（replaceForEntry），符合"重练一次"的语义。
+     */
+    suspend fun resetEntryForRestart(entryId: String): ScheduleEntry? = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        scheduleDao.deleteSetRecords(entryId)
+        scheduleDao.updateProgress(entryId, 0, false, now)
+        scheduleDao.updateStatus(entryId, EntryStatus.IN_PROGRESS.storageValue, now)
+        getEntry(entryId)
     }
 
     /**

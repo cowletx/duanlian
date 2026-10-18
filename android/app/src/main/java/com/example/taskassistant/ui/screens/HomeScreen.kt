@@ -192,9 +192,36 @@ private fun HomeEntryCard(viewModel: MainViewModel, dayEntry: DayEntry) {
                 )
             }
 
-            EntryStatus.COMPLETED -> Text("✓ 已完成", color = AppGreen, fontSize = 13.sp)
-            EntryStatus.INCOMPLETE -> Text("⚠ 未完成（提前结束）", color = AppRed, fontSize = 13.sp)
-            EntryStatus.SKIPPED -> Text("已跳过", color = AppTextSecondary, fontSize = 13.sp)
+            EntryStatus.COMPLETED -> FinishedRow(viewModel, entry, task, "✓ 已完成", AppGreen)
+            EntryStatus.INCOMPLETE -> FinishedRow(viewModel, entry, task, "⚠ 未完成（提前结束）", AppRed)
+            EntryStatus.SKIPPED -> FinishedRow(viewModel, entry, task, "已跳过", AppTextSecondary)
         }
+    }
+}
+
+/**
+ * 已结束（完成 / 提前结束 / 跳过）的卡片底部：状态文字 + 「再练一次」。
+ *
+ * 修复：以前这三种状态只显示一行文字，没有任何再次开始的入口，
+ * 导致当天结束训练后就无法重新开始（用户看到的就是"点开始没反应"）。
+ */
+@Composable
+private fun FinishedRow(
+    viewModel: MainViewModel,
+    entry: com.example.taskassistant.core.ScheduleEntry,
+    task: com.example.taskassistant.core.TaskDef,
+    label: String,
+    color: Color,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = label, color = color, fontSize = 13.sp)
+        SecondaryButton(
+            text = "再练一次",
+            onClick = { viewModel.restartWorkout(entry, task) },
+        )
     }
 }

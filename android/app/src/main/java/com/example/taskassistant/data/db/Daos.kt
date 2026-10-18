@@ -155,6 +155,10 @@ interface ScheduleDao {
     @Query("DELETE FROM set_records WHERE entryId = :entryId AND recordIndex >= :fromIndex")
     suspend fun deleteSetRecordsFrom(entryId: String, fromIndex: Int)
 
+    /** 清空某条目的全部组记录（「再练一次」时重置进度用）。 */
+    @Query("DELETE FROM set_records WHERE entryId = :entryId")
+    suspend fun deleteSetRecords(entryId: String)
+
     @Query("SELECT COUNT(*) FROM set_records WHERE entryId = :entryId")
     suspend fun countSetRecords(entryId: String): Int
 }
